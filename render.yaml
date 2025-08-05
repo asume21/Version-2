@@ -4,8 +4,11 @@ services:
     env: node
     plan: starter
     buildCommand: |
-      npm install -g vite
+      npm install --include=dev
+      cd client
       npm install
+      npm run build
+      cd ..
       npm run build
     startCommand: node dist/index.js
     envVars:
