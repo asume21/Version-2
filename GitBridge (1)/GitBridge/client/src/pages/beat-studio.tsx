@@ -70,12 +70,19 @@ export default function BeatStudio() {
       genre,
       bpm: bpm[0],
       duration: duration[0],
-      aiProvider
+      aiProvider: aiProvider as "grok" | "gemini"
     });
   };
 
   const handlePlay = async () => {
-    if (!generatedBeat) return;
+    if (!generatedBeat) {
+      toast({
+        title: "No beat to play",
+        description: "Generate a beat first",
+        variant: "destructive",
+      });
+      return;
+    }
 
     if (isPlaying) {
       audioManager.stop();
@@ -85,20 +92,24 @@ export default function BeatStudio() {
       setIsPlaying(false);
     } else {
       try {
-        await audioManager.playBeat(generatedBeat.pattern, generatedBeat.samples, bpm[0]);
+        // Initialize audio context on user interaction
+        await audioManager.initialize();
+        await audioManager.playBeat(generatedBeat.pattern, generatedBeat.samples || ["kick", "snare", "hihat"], bpm[0]);
         setIsPlaying(true);
         
-        // Auto-stop after duration
-        setTimeout(() => {
-          setIsPlaying(false);
-          audioManager.stop();
-        }, (duration[0] * (60 / bpm[0])) * 1000);
+        toast({
+          title: "Playing beat",
+          description: `${generatedBeat.description || "Beat is now playing"}`,
+        });
+        
       } catch (error) {
+        console.error("Playback error:", error);
         toast({
           title: "Playback failed",
-          description: "Could not play the beat",
+          description: "Could not play the beat. Check your browser's audio settings.",
           variant: "destructive",
         });
+        setIsPlaying(false);
       }
     }
   };
