@@ -15,10 +15,14 @@ services:
       # Build the server
       cd ..
       npm run build
+      # Verify the build output
+      ls -la dist/
     startCommand: node dist/index.js
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=4096
       - key: PORT
         value: 10000
       - key: DATABASE_URL
