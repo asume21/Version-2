@@ -125,6 +125,3 @@ MIT License - see LICENSE file for details
 ---
 
 Built with ❤️ using Replit, deployed on Render with Neon Database
-=======
-# Final-draft-website
->>>>>>> cc2e2068cc06d82ebe5ba61a21c28d62e54bbb9a
