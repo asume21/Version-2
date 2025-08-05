@@ -4,10 +4,15 @@ services:
     env: node
     plan: starter
     buildCommand: |
+      # Install Vite globally to make it available in the PATH
+      npm install -g vite
+      # Install project dependencies including devDependencies
       npm install --include=dev
+      # Build the client
       cd client
       npm install
       npm run build
+      # Build the server
       cd ..
       npm run build
     startCommand: node dist/index.js
