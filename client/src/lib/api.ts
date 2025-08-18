@@ -5,7 +5,7 @@ export interface CodeTranslationRequest {
   sourceLanguage: string;
   targetLanguage: string;
   userId?: string;
-  aiProvider?: "gemini" | "grok";
+  aiProvider?: "openai" | "grok" | "gemini";
 }
 
 export interface CodeTranslationResponse {
@@ -19,7 +19,7 @@ export interface LyricsRequest {
   genre?: string;
   mood?: string;
   userId?: string;
-  aiProvider?: "gemini" | "grok";
+  aiProvider?: "openai" | "grok" | "gemini";
 }
 
 export interface LyricsResponse {
@@ -45,7 +45,7 @@ export interface BeatRequest {
   bpm: number;
   duration: number;
   userId?: string;
-  aiProvider?: "gemini" | "grok";
+  aiProvider?: "openai" | "grok" | "gemini";
 }
 
 export interface BeatResponse {
@@ -74,7 +74,7 @@ export interface CodeBeatResponse {
 export interface AIAssistRequest {
   question: string;
   context?: string;
-  aiProvider?: "gemini" | "grok";
+  aiProvider?: "openai" | "grok" | "gemini";
 }
 
 export interface AIAssistResponse {
@@ -119,5 +119,37 @@ export const aiAPI = {
   assist: async (data: AIAssistRequest): Promise<AIAssistResponse> => {
     const response = await apiRequest("POST", "/api/ai/assist", data);
     return response.json();
+  }
+};
+
+// Billing
+export interface BillingPlan {
+  id: string;
+  nickname: string;
+  unitAmount: number | null;
+  currency: string;
+  interval: string | null;
+  productId: string;
+}
+
+export const billingAPI = {
+  getPlans: async (): Promise<{ enabled: boolean; plans: BillingPlan[] }> => {
+    const res = await apiRequest("GET", "/api/billing/plans");
+    return res.json();
+  },
+  getStatus: async (params: { email?: string; customerId?: string }): Promise<any> => {
+    const qs = new URLSearchParams();
+    if (params.email) qs.set("email", params.email);
+    if (params.customerId) qs.set("customerId", params.customerId);
+    const res = await apiRequest("GET", `/api/billing/status?${qs.toString()}`);
+    return res.json();
+  },
+  createCheckoutSession: async (data: { priceId: string; email?: string; successUrl: string; cancelUrl: string }): Promise<{ url: string }> => {
+    const res = await apiRequest("POST", "/api/billing/create-checkout-session", data);
+    return res.json();
+  },
+  createPortalSession: async (data: { customerId?: string; email?: string; returnUrl: string }): Promise<{ url: string }> => {
+    const res = await apiRequest("POST", "/api/billing/create-portal-session", data);
+    return res.json();
   }
 };

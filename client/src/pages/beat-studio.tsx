@@ -14,6 +14,7 @@ import { audioManager } from "@/lib/audio";
 import { Waveform } from "@/components/ui/waveform";
 import { AudioVisualizer } from "@/components/ui/audio-visualizer";
 import { AIProviderSelector } from "@/components/ui/ai-provider-selector";
+import Sequencer from "@/components/sequencer/Sequencer";
 
 const GENRES = [
   "Hip-Hop", "Electronic", "Pop", "Rock", "R&B", "Trap", "House", "Techno",
@@ -71,7 +72,7 @@ export default function BeatStudio() {
       genre,
       bpm: bpm[0],
       duration: duration[0],
-      aiProvider: aiProvider as "grok" | "gemini"
+      aiProvider: aiProvider
     });
   };
 
@@ -201,9 +202,10 @@ export default function BeatStudio() {
           </div>
 
           <Tabs defaultValue="generate" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 mb-6">
+            <TabsList className="grid w-full grid-cols-3 mb-6">
               <TabsTrigger value="generate">Generate Beat</TabsTrigger>
               <TabsTrigger value="edit">Edit Pattern</TabsTrigger>
+              <TabsTrigger value="sequencer">Sequencer</TabsTrigger>
             </TabsList>
 
             <TabsContent value="generate">
@@ -546,6 +548,12 @@ export default function BeatStudio() {
                     </CardContent>
                   </Card>
                 </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="sequencer">
+              <div className="grid grid-cols-1 gap-6">
+                <Sequencer />
               </div>
             </TabsContent>
           </Tabs>

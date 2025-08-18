@@ -79,6 +79,12 @@ DATABASE_URL=postgresql://username:password@hostname/database
 GEMINI_API_KEY=your_gemini_api_key
 XAI_API_KEY=your_xai_api_key
 NODE_ENV=production
+# Stripe (Billing)
+STRIPE_SECRET_KEY=sk_live_or_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+# Optional: pre-configured subscription prices
+STRIPE_PRICE_BASIC=price_...
+STRIPE_PRICE_PRO=price_...
 ```
 
 ## 📱 Usage
@@ -88,6 +94,20 @@ NODE_ENV=production
 3. **Beat Creation**: Select genre, adjust BPM/duration, generate beats
 4. **Code to Music**: Input code, select language, convert to musical composition
 5. **AI Assistance**: Ask questions about coding, music theory, or platform usage
+
+### Billing
+
+- Visit `/billing` to view plans and manage your subscription.
+- The server exposes:
+  - `POST /webhooks/stripe` (raw body) for Stripe webhook events
+  - `GET /api/billing/plans` to list available prices
+  - `GET /api/billing/status?email=<email>&customerId=<id>` to check status
+  - `POST /api/billing/create-checkout-session` for Checkout redirects
+  - `POST /api/billing/create-portal-session` for Billing Portal
+
+Webhook setup (local):
+- Install Stripe CLI and run: `stripe listen --forward-to localhost:5000/webhooks/stripe`
+- Use the printed signing secret as `STRIPE_WEBHOOK_SECRET`.
 
 ## 🎵 Audio Features
 

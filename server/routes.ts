@@ -1,8 +1,9 @@
 import type { Express } from "express";
+import express from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
-// OpenAI removed - using only Gemini and Grok
+// Providers
 import {
   translateCodeWithGemini,
   generateLyricsWithGemini,
@@ -18,21 +19,204 @@ import {
   getAIAssistanceWithGrok
 } from "./grok";
 import {
+  translateCode as translateCodeWithOpenAI,
+  generateLyrics as generateLyricsWithOpenAI,
+  analyzeLyrics as analyzeLyricsWithOpenAI,
+  generateBeatPattern as generateBeatWithOpenAI,
+  codeToMusic as convertCodeToMusicWithOpenAI,
+  getAIAssistance as getAIAssistanceWithOpenAI,
+} from "./openai";
+import {
   insertUserSchema,
   insertProjectSchema,
   insertCodeTranslationSchema,
   insertMusicGenerationSchema
 } from "@shared/schema";
+import { stripe, isStripeEnabled } from "./stripe";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Stripe webhook must use raw body for signature verification
+  app.post("/webhooks/stripe", express.raw({ type: "application/json" }), async (req, res) => {
+    try {
+      if (!isStripeEnabled()) {
+        return res.status(200).send();
+      }
+
+      const sig = req.headers["stripe-signature"] as string | undefined;
+      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+      if (!sig || !webhookSecret) {
+        return res.status(400).send("Missing Stripe signature or webhook secret");
+      }
+
+      const event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+
+      switch (event.type) {
+        case "checkout.session.completed": {
+          const session = event.data.object as any;
+          console.log("Checkout completed", session.id);
+          break;
+        }
+        case "customer.subscription.updated":
+        case "customer.subscription.created":
+        case "customer.subscription.deleted": {
+          const subscription = event.data.object as any;
+          console.log("Subscription event", subscription.id, subscription.status);
+          break;
+        }
+        default:
+          break;
+      }
+      res.json({ received: true });
+    } catch (err) {
+      console.error("Stripe webhook error", err);
+      res.status(400).send(`Webhook Error: ${err instanceof Error ? err.message : "unknown"}`);
+    }
+  });
+
+  // Mount JSON/urlencoded parsers after webhook
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: false }));
+
   // Health check
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
+  // Billing endpoints
+  app.get("/api/billing/plans", async (_req, res) => {
+    if (!isStripeEnabled()) return res.json({ enabled: false, plans: [] });
+    try {
+      // Support both STRIPE_PRICE_BASIC/PRO and STRIPE_PRICE_ID_BASIC/PRO
+      const priceIds = [
+        process.env.STRIPE_PRICE_BASIC || process.env.STRIPE_PRICE_ID_BASIC,
+        process.env.STRIPE_PRICE_PRO || process.env.STRIPE_PRICE_ID_PRO,
+      ].filter(Boolean) as string[];
+
+      const prices: any[] = priceIds.length
+        ? (await Promise.all(priceIds.map((id) => stripe.prices.retrieve(id)))) as any[]
+        : ((await stripe.prices.list({ active: true, limit: 10 })).data as any[]);
+
+      const productsMap = new Map<string, any>();
+      // Fetch products for prices
+      for (const price of prices) {
+        if (typeof price.product === "string") {
+          if (!productsMap.has(price.product)) {
+            const product = (await stripe.products.retrieve(price.product)) as any;
+            productsMap.set(product.id, product);
+          }
+        }
+      }
+
+      const plans = prices.map((p: any) => {
+        const productId = typeof p.product === "string" ? p.product : p.product.id;
+        const product = productsMap.get(productId);
+        return {
+          id: p.id,
+          nickname: p.nickname || product?.name || "Plan",
+          unitAmount: p.unit_amount,
+          currency: p.currency,
+          interval: (p.recurring && p.recurring.interval) || null,
+          productId,
+        };
+      });
+      res.json({ enabled: true, plans });
+    } catch (e) {
+      res.status(500).json({ enabled: false, message: e instanceof Error ? e.message : "Failed to load plans" });
+    }
+  });
+
+  app.get("/api/billing/status", async (req, res) => {
+    if (!isStripeEnabled()) return res.json({ enabled: false });
+    try {
+      const email = req.query.email as string | undefined;
+      const customerId = req.query.customerId as string | undefined;
+      if (!email && !customerId) {
+        return res.status(400).json({ message: "email or customerId is required" });
+      }
+
+      let customer: any | null = null;
+      if (customerId) {
+        customer = (await stripe.customers.retrieve(customerId)) as any;
+      } else if (email) {
+        const list = await stripe.customers.list({ email, limit: 1 });
+        customer = list.data[0] || null;
+      }
+      if (!customer) return res.json({ enabled: true, active: false });
+
+      const subs = await stripe.subscriptions.list({ customer: customer.id, status: "all", limit: 1 });
+      const sub = subs.data[0];
+      res.json({ enabled: true, active: !!sub && ["active", "trialing", "past_due"].includes(sub.status), status: sub?.status || null, subscriptionId: sub?.id || null });
+    } catch (e) {
+      res.status(500).json({ enabled: false, message: e instanceof Error ? e.message : "Failed to get status" });
+    }
+  });
+
+  app.post("/api/billing/create-checkout-session", async (req, res) => {
+    try {
+      if (!isStripeEnabled()) return res.status(400).json({ message: "Stripe not configured" });
+      const schema = z.object({
+        priceId: z.string().min(1),
+        email: z.string().email().optional(),
+        successUrl: z.string().min(1),
+        cancelUrl: z.string().min(1),
+      });
+      const { priceId, email, successUrl, cancelUrl } = schema.parse(req.body);
+
+      let customerId: string | undefined;
+      if (email) {
+        const customers = await stripe.customers.list({ email, limit: 1 });
+        if (customers.data.length) customerId = customers.data[0].id;
+      }
+
+      const session = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        line_items: [{ price: priceId, quantity: 1 }],
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        customer_email: email && !customerId ? email : undefined,
+        customer: customerId,
+        allow_promotion_codes: true,
+      });
+      res.json({ url: session.url });
+    } catch (e) {
+      res.status(500).json({ message: e instanceof Error ? e.message : "Failed to create checkout session" });
+    }
+  });
+
+  app.post("/api/billing/create-portal-session", async (req, res) => {
+    try {
+      if (!isStripeEnabled()) return res.status(400).json({ message: "Stripe not configured" });
+      const schema = z.object({
+        customerId: z.string().optional(),
+        email: z.string().email().optional(),
+        returnUrl: z.string().min(1),
+      });
+      const { customerId, email, returnUrl } = schema.parse(req.body);
+      let resolvedCustomerId = customerId;
+      if (!resolvedCustomerId && email) {
+        const customers = await stripe.customers.list({ email, limit: 1 });
+        if (!customers.data.length) return res.status(400).json({ message: "Customer not found for email" });
+        resolvedCustomerId = customers.data[0].id;
+      }
+      if (!resolvedCustomerId) return res.status(400).json({ message: "customerId or email is required" });
+
+      const portal = await stripe.billingPortal.sessions.create({ customer: resolvedCustomerId, return_url: returnUrl });
+      res.json({ url: portal.url });
+    } catch (e) {
+      res.status(500).json({ message: e instanceof Error ? e.message : "Failed to create portal session" });
+    }
+  });
+
   // AI Providers endpoint
   app.get("/api/ai/providers", (req, res) => {
     const providers = [
+      {
+        id: "openai",
+        name: "OpenAI",
+        description: "Versatile reasoning models for code and creative tasks",
+        features: ["Code Translation", "Lyric Generation", "Beat Creation", "Code-to-Music", "AI Assistant"],
+        available: !!process.env.OPENAI_API_KEY,
+      },
       {
         id: "grok",
         name: "xAI Grok",
@@ -48,14 +232,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         available: !!process.env.GEMINI_API_KEY
       }
     ];
-    
+
     // Debug logging for deployment
     console.log("API Keys Check:", {
+      OPENAI_API_KEY: !!process.env.OPENAI_API_KEY,
       XAI_API_KEY: !!process.env.XAI_API_KEY,
       GEMINI_API_KEY: !!process.env.GEMINI_API_KEY,
       providers: providers.map(p => ({ id: p.id, available: p.available }))
     });
-    
+
     res.json(providers);
   });
 
@@ -96,13 +281,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sourceLanguage: z.string().min(1),
         targetLanguage: z.string().min(1),
         userId: z.string().optional(),
-        aiProvider: z.enum(["gemini", "grok"]).default("grok")
+        aiProvider: z.enum(["openai", "grok", "gemini"]).default("grok")
       });
 
       const { sourceCode, sourceLanguage, targetLanguage, userId, aiProvider } = schema.parse(req.body);
+
+      // Provider availability guards
+      if (aiProvider === "openai" && !process.env.OPENAI_API_KEY) {
+        return res.status(400).json({ message: "OpenAI API key not configured" });
+      }
+      if (aiProvider === "grok" && !process.env.XAI_API_KEY) {
+        return res.status(400).json({ message: "Grok (xAI) API key not configured" });
+      }
+      if (aiProvider === "gemini" && !process.env.GEMINI_API_KEY) {
+        return res.status(400).json({ message: "Gemini API key not configured" });
+      }
       
       let result: any;
       switch (aiProvider) {
+        case "openai":
+          result = await translateCodeWithOpenAI(sourceCode, sourceLanguage, targetLanguage);
+          break;
         case "gemini":
           result = await translateCodeWithGemini(sourceCode, sourceLanguage, targetLanguage);
           break;
@@ -154,13 +353,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         genre: z.string().optional(),
         mood: z.string().optional(),
         userId: z.string().optional(),
-        aiProvider: z.enum(["gemini", "grok"]).default("grok")
+        aiProvider: z.enum(["openai", "grok", "gemini"]).default("grok")
       });
 
       const { prompt, genre, mood, userId, aiProvider } = schema.parse(req.body);
+      if (aiProvider === "openai" && !process.env.OPENAI_API_KEY) {
+        return res.status(400).json({ message: "OpenAI API key not configured" });
+      }
+      if (aiProvider === "grok" && !process.env.XAI_API_KEY) {
+        return res.status(400).json({ message: "Grok (xAI) API key not configured" });
+      }
+      if (aiProvider === "gemini" && !process.env.GEMINI_API_KEY) {
+        return res.status(400).json({ message: "Gemini API key not configured" });
+      }
       
       let result: any;
       switch (aiProvider) {
+        case "openai":
+          result = await generateLyricsWithOpenAI(prompt, genre, mood);
+          break;
         case "gemini":
           result = { lyrics: await generateLyricsWithGemini(prompt, mood, genre) };
           break;
@@ -215,13 +426,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         bpm: z.number().min(60).max(200),
         duration: z.number().min(1).max(300),
         userId: z.string().optional(),
-        aiProvider: z.enum(["gemini", "grok"]).default("grok")
+        aiProvider: z.enum(["openai", "grok", "gemini"]).default("grok")
       });
 
       const { genre, bpm, duration, userId, aiProvider } = schema.parse(req.body);
+      if (aiProvider === "openai" && !process.env.OPENAI_API_KEY) {
+        return res.status(400).json({ message: "OpenAI API key not configured" });
+      }
+      if (aiProvider === "grok" && !process.env.XAI_API_KEY) {
+        return res.status(400).json({ message: "Grok (xAI) API key not configured" });
+      }
+      if (aiProvider === "gemini" && !process.env.GEMINI_API_KEY) {
+        return res.status(400).json({ message: "Gemini API key not configured" });
+      }
       
       let result: any;
       switch (aiProvider) {
+        case "openai":
+          result = await generateBeatWithOpenAI(genre, bpm, duration);
+          break;
         case "gemini":
           result = await generateBeatWithGemini(genre, bpm);
           break;
@@ -256,13 +479,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         code: z.string().min(1),
         language: z.string().min(1),
         userId: z.string().optional(),
-        aiProvider: z.enum(["gemini", "grok"]).default("grok")
+        aiProvider: z.enum(["openai", "grok", "gemini"]).default("grok")
       });
 
       const { code, language, userId, aiProvider } = schema.parse(req.body);
+      if (aiProvider === "openai" && !process.env.OPENAI_API_KEY) {
+        return res.status(400).json({ message: "OpenAI API key not configured" });
+      }
+      if (aiProvider === "grok" && !process.env.XAI_API_KEY) {
+        return res.status(400).json({ message: "Grok (xAI) API key not configured" });
+      }
+      if (aiProvider === "gemini" && !process.env.GEMINI_API_KEY) {
+        return res.status(400).json({ message: "Gemini API key not configured" });
+      }
       
       let result: any;
       switch (aiProvider) {
+        case "openai":
+          result = await convertCodeToMusicWithOpenAI(code, language);
+          break;
         case "gemini":
           result = await convertCodeToMusicWithGemini(code, language);
           break;
@@ -296,13 +531,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const schema = z.object({
         question: z.string().min(1),
         context: z.string().optional(),
-        aiProvider: z.enum(["gemini", "grok"]).default("grok")
+        aiProvider: z.enum(["openai", "grok", "gemini"]).default("grok")
       });
 
       const { question, context, aiProvider } = schema.parse(req.body);
+      if (aiProvider === "openai" && !process.env.OPENAI_API_KEY) {
+        return res.status(400).json({ message: "OpenAI API key not configured" });
+      }
+      if (aiProvider === "grok" && !process.env.XAI_API_KEY) {
+        return res.status(400).json({ message: "Grok (xAI) API key not configured" });
+      }
+      if (aiProvider === "gemini" && !process.env.GEMINI_API_KEY) {
+        return res.status(400).json({ message: "Gemini API key not configured" });
+      }
       
       let result: any;
       switch (aiProvider) {
+        case "openai":
+          result = await getAIAssistanceWithOpenAI(question, context);
+          break;
         case "gemini":
           result = { answer: await getAIAssistanceWithGemini(question, context) };
           break;

@@ -1,14 +1,100 @@
 import * as Tone from "tone";
+import type { SequencerState, TrackId } from "@/lib/sequencer";
 
 export class AudioManager {
-  private synth: Tone.Synth;
+  private synth: Tone.Synth | null = null;
   private drumKit: { [key: string]: any };
   private isInitialized = false;
   private currentSequence: Tone.Sequence | null = null;
+  private trackInstruments: Partial<Record<TrackId, any>> = {};
 
   constructor() {
-    this.synth = new Tone.Synth().toDestination();
     this.drumKit = {};
+  }
+
+  async playSequencer(state: SequencerState) {
+    await this.initialize();
+    try {
+      // Stop any existing sequence
+      if (this.currentSequence) {
+        this.currentSequence.stop();
+        this.currentSequence.dispose();
+      }
+
+      this.setBpm(state.bpm);
+
+      const totalSteps = state.bars * state.stepsPerBar;
+
+      // Build step activation map per track for the whole timeline
+      const stepMap: Partial<Record<TrackId, boolean[]>> = {};
+      for (const track of state.tracks) {
+        const arr = Array<boolean>(totalSteps).fill(false);
+        for (const clip of track.clips) {
+          for (let i = 0; i < clip.length; i++) {
+            const globalStep = clip.start + i;
+            if (globalStep >= 0 && globalStep < totalSteps) {
+              arr[globalStep] = arr[globalStep] || !!clip.steps[i]?.active;
+            }
+          }
+        }
+        stepMap[track.id as TrackId] = arr;
+      }
+
+      const indices = Array.from({ length: totalSteps }, (_, i) => i);
+      this.currentSequence = new Tone.Sequence((time, stepIndex: number) => {
+        // Determine if any solo is active
+        const anySolo = state.tracks.some((t) => t.solo);
+
+        for (const t of state.tracks) {
+          const id = t.id as TrackId;
+          const active = stepMap[id]?.[stepIndex];
+          if (!active) continue;
+          if (t.mute) continue;
+          if (anySolo && !t.solo) continue;
+
+          const inst = (this.trackInstruments[id] || this.drumKit.hihat);
+
+          // Trigger per instrument with simple defaults
+          switch (id) {
+            case "kick":
+              inst.triggerAttackRelease("C1", "8n", time);
+              break;
+            case "snare":
+              inst.triggerAttackRelease("8n", time);
+              break;
+            case "hhc":
+              inst.triggerAttackRelease("32n", time, 0.3);
+              break;
+            case "hho":
+              inst.triggerAttackRelease("8n", time, 0.4);
+              break;
+            case "tom1":
+              inst.triggerAttackRelease("G1", "8n", time);
+              break;
+            case "tom2":
+              inst.triggerAttackRelease("F1", "8n", time);
+              break;
+            case "tom3":
+              inst.triggerAttackRelease("D1", "8n", time);
+              break;
+            case "ride":
+              inst.triggerAttackRelease("4n", time, 0.5);
+              break;
+            case "crash":
+              inst.triggerAttackRelease("2n", time, 0.6);
+              break;
+            default:
+              this.drumKit.hihat.triggerAttackRelease("32n", time, 0.2);
+          }
+        }
+      }, indices, "16n");
+
+      this.currentSequence.loop = true;
+      this.currentSequence.start(0);
+      Tone.Transport.start();
+    } catch (error) {
+      console.warn("Failed to play sequencer:", error);
+    }
   }
 
   async initialize() {
@@ -18,6 +104,8 @@ export class AudioManager {
       console.log("Initializing Tone.js audio context...");
       await Tone.start();
       console.log("Tone.js started, audio context state:", Tone.getContext().state);
+      // Create core synth only after the context is started (requires a user gesture)
+      this.synth = this.synth ?? new Tone.Synth().toDestination();
       
       // Create synthesized drum sounds instead of loading files
       this.drumKit = {
@@ -42,11 +130,32 @@ export class AudioManager {
         }).toDestination()
       };
 
+      // Map sequencer track instruments
+      this.trackInstruments = {
+        kick: this.drumKit.kick,
+        snare: this.drumKit.snare,
+        hhc: new Tone.MetalSynth({
+          envelope: { attack: 0.001, decay: 0.08, release: 0.01 },
+          harmonicity: 5,
+          modulationIndex: 30,
+          resonance: 5000,
+          octaves: 1.5,
+        }).toDestination(),
+        hho: new Tone.MetalSynth({
+          envelope: { attack: 0.001, decay: 0.3, release: 0.05 },
+          harmonicity: 5,
+          modulationIndex: 30,
+          resonance: 4000,
+          octaves: 1.5,
+        }).toDestination(),
+        tom1: new Tone.MembraneSynth({ octaves: 4, envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 0.2 } }).toDestination(),
+        tom2: new Tone.MembraneSynth({ octaves: 4, envelope: { attack: 0.001, decay: 0.5, sustain: 0.01, release: 0.25 } }).toDestination(),
+        tom3: new Tone.MembraneSynth({ octaves: 4, envelope: { attack: 0.001, decay: 0.6, sustain: 0.01, release: 0.3 } }).toDestination(),
+        ride: new Tone.MetalSynth({ envelope: { attack: 0.001, decay: 1.2, release: 0.2 }, resonance: 7000 }).toDestination(),
+        crash: new Tone.MetalSynth({ envelope: { attack: 0.001, decay: 1.8, release: 0.3 }, resonance: 6000 }).toDestination(),
+      };
+
       console.log("Drum kit created:", Object.keys(this.drumKit));
-      
-      // Test audio by playing a quick sound
-      this.drumKit.kick.triggerAttackRelease("C1", "8n");
-      console.log("Test kick sound triggered");
 
       this.isInitialized = true;
     } catch (error) {
@@ -55,9 +164,18 @@ export class AudioManager {
     }
   }
 
+  setBpm(bpm: number) {
+    try {
+      Tone.Transport.bpm.value = bpm;
+    } catch (error) {
+      // noop
+    }
+  }
+
   async playNote(note: string | number, duration: string = "8n") {
     await this.initialize();
     try {
+      if (!this.synth) return; // synth is created in initialize()
       this.synth.triggerAttackRelease(note, duration);
     } catch (error) {
       console.warn("Failed to play note:", error);
@@ -71,6 +189,7 @@ export class AudioManager {
       Tone.Transport.bpm.value = tempo;
       
       const sequence = new Tone.Sequence((time, note) => {
+        if (!this.synth) return;
         this.synth.triggerAttackRelease(Tone.Frequency(note, "midi").toNote(), "8n", time);
       }, notes, "8n");
 
@@ -154,7 +273,10 @@ export class AudioManager {
   dispose() {
     try {
       this.stop();
-      this.synth.dispose();
+      if (this.synth) {
+        this.synth.dispose();
+        this.synth = null;
+      }
       Object.values(this.drumKit).forEach(instrument => instrument.dispose());
       this.isInitialized = false;
     } catch (error) {

@@ -14,6 +14,7 @@ import BeatStudio from "@/pages/beat-studio";
 import MusicStudio from "@/pages/music-studio";
 import CodeBeatStudio from "@/pages/codebeat-studio";
 import AIAssistant from "@/pages/ai-assistant";
+import Billing from "@/pages/billing";
 
 function Router() {
   return (
@@ -26,6 +27,7 @@ function Router() {
       <Route path="/music-studio" component={MusicStudio} />
       <Route path="/codebeat-studio" component={CodeBeatStudio} />
       <Route path="/ai-assistant" component={AIAssistant} />
+      <Route path="/billing" component={Billing} />
       <Route component={NotFound} />
     </Switch>
   );

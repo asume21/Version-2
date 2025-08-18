@@ -9,7 +9,8 @@ import {
   Settings,
   Home,
   FileText,
-  Headphones
+  Headphones,
+  CreditCard
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +25,7 @@ export function Sidebar() {
     { href: "/music-studio", label: "Music Studio", icon: Music },
     { href: "/codebeat-studio", label: "CodeBeat Studio", icon: Zap },
     { href: "/ai-assistant", label: "AI Assistant", icon: Bot },
+    { href: "/billing", label: "Billing", icon: CreditCard },
     { href: "/analytics", label: "Analytics", icon: BarChart3 },
     { href: "/settings", label: "Settings", icon: Settings },
   ];
