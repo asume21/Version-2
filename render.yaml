@@ -3,21 +3,8 @@ services:
     name: codeswitch
     env: node
     plan: starter
-    buildCommand: |
-      # Install all dependencies including devDependencies
-      npm install --include=dev
-      # Install Vite locally
-      npm install -D vite@latest
-      # Build the client
-      cd client
-      npm install
-      npm run build
-      # Build the server
-      cd ..
-      npm run build
-      # Verify the build output
-      ls -la dist/
-    startCommand: node dist/index.js
+    buildCommand: rm -rf node_modules package-lock.json && npm install && npm run build
+    startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production
