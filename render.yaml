@@ -5,7 +5,7 @@ services:
     name: codeswitch
     env: node
     plan: starter
-    buildCommand: rm -rf node_modules package-lock.json && npm cache clean --force && npm install && npm run build
+    buildCommand: rm -rf node_modules package-lock.json && npm cache clean --force && npm install && npm install @tailwindcss/typography tailwindcss-animate && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
