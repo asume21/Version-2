@@ -1,3 +1,5 @@
+# Render deployment configuration
+# Updated to fix Rollup module issue
 services:
   - type: web
     name: codeswitch
