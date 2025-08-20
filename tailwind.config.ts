@@ -86,5 +86,22 @@ export default {
       },
     },
   },
-  plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],
+  plugins: [
+    (() => {
+      try {
+        return require("tailwindcss-animate");
+      } catch {
+        console.warn("tailwindcss-animate not found, skipping");
+        return () => {};
+      }
+    })(),
+    (() => {
+      try {
+        return require("@tailwindcss/typography");
+      } catch {
+        console.warn("@tailwindcss/typography not found, skipping");
+        return () => {};
+      }
+    })(),
+  ],
 } satisfies Config;
