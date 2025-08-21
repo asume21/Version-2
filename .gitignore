@@ -7,3 +7,11 @@ vite.config.ts.*
 
 # VS Code settings
 .vscode/
+
+# Project-local caches and artifacts
+.cache/
+.config/
+.local/
+.upm/
+attached_assets/
+GitBridge (1)/

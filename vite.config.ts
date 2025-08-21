@@ -10,10 +10,6 @@ export default defineConfig({
     alias: {
       "@": resolve(dirname(fileURLToPath(import.meta.url)), "client", "src"),
       "@shared": resolve(dirname(fileURLToPath(import.meta.url)), "shared"),
-      "@assets": resolve(
-        dirname(fileURLToPath(import.meta.url)),
-        "attached_assets",
-      ),
     },
   },
   root: resolve(dirname(fileURLToPath(import.meta.url)), "client"),

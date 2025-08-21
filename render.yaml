@@ -20,6 +20,14 @@ services:
         sync: false
       - key: XAI_API_KEY
         sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_BASIC
+        sync: false
+      - key: STRIPE_PRICE_PRO
+        sync: false
       - key: NODE_VERSION
         value: 18.x
     build:
