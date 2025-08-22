@@ -4,7 +4,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer, createLogger } from "vite";
 import { type Server } from "http";
-import viteConfig from "../vite.config";
 import { nanoid } from "nanoid";
 
 // Derive __dirname in ESM context
@@ -29,6 +28,9 @@ export async function setupVite(app: Express, server: Server) {
     hmr: { server },
     allowedHosts: true as const,
   };
+
+  // Import vite config dynamically so production doesn't load it
+  const { default: viteConfig } = await import("../vite.config");
 
   const vite = await createViteServer({
     ...viteConfig,
@@ -72,8 +74,9 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
-  // Vite outputs client build to <project>/dist/public (see vite.config.ts)
-  const distPath = path.resolve(__dirname, "..", "dist", "public");
+  // In the bundled server, __dirname points to <project>/dist
+  // so the client assets live in <project>/dist/public
+  const distPath = path.resolve(__dirname, "public");
 
   if (!fs.existsSync(distPath)) {
     throw new Error(

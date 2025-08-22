@@ -31,8 +31,40 @@ import {
   insertProjectSchema,
   insertCodeTranslationSchema,
   insertMusicGenerationSchema
-} from "@shared/schema";
+} from "../shared/schema";
 import { stripe, isStripeEnabled } from "./stripe";
+
+// Free tier configuration (simple in-memory usage limiter)
+const FREE_TIER_ENABLED = process.env.FREE_TIER_ENABLED !== "false";
+const FREE_TIER_DAILY_LIMIT = parseInt(process.env.FREE_TIER_DAILY_LIMIT || "10", 10);
+
+const usageCounters = new Map<string, number>();
+
+function getClientKey(req: express.Request) {
+  const fwd = (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim();
+  const ip = fwd || req.ip || (req.socket as any)?.remoteAddress || "unknown";
+  const day = new Date().toISOString().slice(0, 10);
+  return `${ip}:${day}`;
+}
+
+function withUsageLimit<T extends express.Request, U extends express.Response>(
+  handler: (req: T, res: U) => Promise<any>
+) {
+  return async (req: T, res: U) => {
+    if (FREE_TIER_ENABLED) {
+      const key = getClientKey(req);
+      const count = usageCounters.get(key) ?? 0;
+      if (count >= FREE_TIER_DAILY_LIMIT) {
+        return res.status(429).json({
+          message: "Free tier daily limit reached. Please upgrade at /billing.",
+          limit: FREE_TIER_DAILY_LIMIT,
+        });
+      }
+      usageCounters.set(key, count + 1);
+    }
+    return handler(req, res);
+  };
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Stripe webhook must use raw body for signature verification
@@ -119,6 +151,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           productId,
         };
       });
+      // Always expose a synthetic Free plan as an entry point
+      if (FREE_TIER_ENABLED) {
+        plans.unshift({
+          id: "free",
+          nickname: "Free",
+          unitAmount: 0,
+          currency: "usd",
+          interval: "month",
+          productId: "free",
+        });
+      }
       res.json({ enabled: true, plans });
     } catch (e) {
       res.status(500).json({ enabled: false, message: e instanceof Error ? e.message : "Failed to load plans" });
@@ -274,7 +317,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Code translation routes
-  app.post("/api/code/translate", async (req, res) => {
+  app.post("/api/code/translate", withUsageLimit(async (req, res) => {
     try {
       const schema = z.object({
         sourceCode: z.string().min(1),
@@ -331,7 +374,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error: error instanceof Error ? error.message : "Unknown error" 
       });
     }
-  });
+  }));
 
   app.get("/api/users/:userId/translations", async (req, res) => {
     try {
@@ -346,7 +389,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Lyrics routes
-  app.post("/api/lyrics/generate", async (req, res) => {
+  app.post("/api/lyrics/generate", withUsageLimit(async (req, res) => {
     try {
       const schema = z.object({
         prompt: z.string().min(1),
@@ -397,7 +440,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error: error instanceof Error ? error.message : "Unknown error" 
       });
     }
-  });
+  }));
 
   app.post("/api/lyrics/analyze", async (req, res) => {
     try {
@@ -419,7 +462,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Beat generation routes
-  app.post("/api/beat/generate", async (req, res) => {
+  app.post("/api/beat/generate", withUsageLimit(async (req, res) => {
     try {
       const schema = z.object({
         genre: z.string().min(1),
@@ -470,10 +513,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error: error instanceof Error ? error.message : "Unknown error" 
       });
     }
-  });
+  }));
 
   // CodeBeat fusion routes
-  app.post("/api/codebeat/convert", async (req, res) => {
+  app.post("/api/codebeat/convert", withUsageLimit(async (req, res) => {
     try {
       const schema = z.object({
         code: z.string().min(1),
@@ -523,10 +566,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error: error instanceof Error ? error.message : "Unknown error" 
       });
     }
-  });
+  }));
 
   // AI Assistant routes
-  app.post("/api/ai/assist", async (req, res) => {
+  app.post("/api/ai/assist", withUsageLimit(async (req, res) => {
     try {
       const schema = z.object({
         question: z.string().min(1),
@@ -564,7 +607,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error: error instanceof Error ? error.message : "Unknown error" 
       });
     }
-  });
+  }));
 
   // Project routes
   app.post("/api/projects", async (req, res) => {

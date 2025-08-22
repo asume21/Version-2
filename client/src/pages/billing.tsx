@@ -4,9 +4,11 @@ import { billingAPI, type BillingPlan } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useLocation } from "wouter";
 
 export default function Billing() {
   const [email, setEmail] = useState("");
+  const [, navigate] = useLocation();
 
   const plansQuery = useQuery({
     queryKey: ["/api/billing/plans"],
@@ -105,12 +107,16 @@ export default function Billing() {
                     {plan.unitAmount != null ? `$${(plan.unitAmount / 100).toFixed(2)}` : "-"}
                     {plan.interval ? <span className="text-base text-github-text-secondary">/{plan.interval}</span> : null}
                   </div>
-                  <Button
-                    disabled={!stripeEnabled || checkoutMutation.isPending}
-                    onClick={() => checkoutMutation.mutate(plan.id)}
-                  >
-                    {checkoutMutation.isPending ? "Redirecting…" : "Subscribe"}
-                  </Button>
+                  {plan.id === "free" ? (
+                    <Button onClick={() => navigate("/dashboard")}>Start Free</Button>
+                  ) : (
+                    <Button
+                      disabled={!stripeEnabled || checkoutMutation.isPending}
+                      onClick={() => checkoutMutation.mutate(plan.id)}
+                    >
+                      {checkoutMutation.isPending ? "Redirecting…" : "Subscribe"}
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             ))}
