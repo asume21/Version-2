@@ -31,6 +31,7 @@ export interface LyricsResponse {
 
 export interface LyricsAnalysisRequest {
   lyrics: string;
+  aiProvider?: "openai" | "grok" | "gemini";
 }
 
 export interface LyricsAnalysisResponse {

@@ -92,6 +92,27 @@
   .github-text-secondary {
     color: var(--github-text-secondary);
   }
+
+  /* Aliases to match utility-like class names used in components */
+  .bg-github-dark {
+    background-color: var(--github-dark);
+  }
+
+  .bg-github-secondary {
+    background-color: var(--github-secondary);
+  }
+
+  .border-github-border {
+    border-color: var(--github-border);
+  }
+
+  .text-github-text {
+    color: var(--github-text);
+  }
+
+  .text-github-text-secondary {
+    color: var(--github-text-secondary);
+  }
   
   .accent-purple {
     color: var(--accent-purple);

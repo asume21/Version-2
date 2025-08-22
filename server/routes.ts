@@ -66,6 +66,56 @@ function withUsageLimit<T extends express.Request, U extends express.Response>(
   };
 }
 
+// Simple heuristic lyrics analysis to ensure consistent responses without relying on external AI
+function simpleLyricAnalysis(lyrics: string): {
+  sentiment: string;
+  themes: string[];
+  rhymeScheme: string;
+  complexity: number;
+} {
+  const lines = lyrics.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const words = (lyrics.toLowerCase().match(/[a-z']+/g) || []);
+
+  // Sentiment (very naive): positive/negative word counts
+  const positive = new Set([
+    "love","happy","joy","dream","hope","win","shine","bright","good","great","best","smile","strong","calm","peace","light"
+  ]);
+  const negative = new Set([
+    "sad","cry","hurt","pain","lonely","dark","bad","worst","tears","fear","broken","lost","angry","mad"
+  ]);
+  let score = 0;
+  for (const w of words) {
+    if (positive.has(w)) score += 1;
+    if (negative.has(w)) score -= 1;
+  }
+  const sentiment = score > 1 ? "positive" : score < -1 ? "negative" : "neutral";
+
+  // Rhyme scheme: map last 2 letters of last word per line to letters A, B, C, ...
+  const endings = lines.map((l) => (l.trim().split(/\s+/).pop() || "").toLowerCase().replace(/[^a-z]/g, "")).map((w) => w.slice(-2));
+  const rhymeMap = new Map<string, string>();
+  let nextCode = 65; // 'A'
+  const scheme = endings.map((end) => {
+    const key = end || `line-${Math.random().toString(36).slice(2, 6)}`;
+    if (!rhymeMap.has(key)) rhymeMap.set(key, String.fromCharCode(nextCode++));
+    return rhymeMap.get(key)!;
+  }).join("");
+
+  // Complexity: scaled unique word ratio
+  const unique = new Set(words).size;
+  const complexity = Math.max(1, Math.min(10, Math.round((unique / (words.length || 1)) * 10)));
+
+  // Themes: top non-stopword tokens
+  const stop = new Set(["the","and","a","to","of","in","is","it","i","you","my","your","on","for","with","that","this","we","me","be","as","our","at","from","by","an","are","was","were"]);
+  const counts = new Map<string, number>();
+  for (const w of words) {
+    if (w.length < 3 || stop.has(w)) continue;
+    counts.set(w, (counts.get(w) || 0) + 1);
+  }
+  const themes = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([w]) => w);
+
+  return { sentiment, themes, rhymeScheme: scheme || "unknown", complexity };
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Stripe webhook must use raw body for signature verification
   app.post("/webhooks/stripe", express.raw({ type: "application/json" }), async (req, res) => {
@@ -421,6 +471,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         default:
           result = { lyrics: await generateLyricsWithGrok(prompt, mood, genre) };
       }
+      // Normalize response shape across providers
+      const lyricsText: string = typeof result === "string" ? result : result.lyrics;
+      const analysis = simpleLyricAnalysis(lyricsText || "");
+      const normalized = {
+        lyrics: lyricsText || "",
+        rhymeScheme: result.rhymeScheme ?? analysis.rhymeScheme,
+        sentiment: result.sentiment ?? analysis.sentiment,
+      };
       
       // Save generation if user is provided
       if (userId) {
@@ -428,11 +486,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           userId,
           type: "lyrics",
           prompt,
-          result
+          result: normalized
         });
-        res.json({ ...result, id: generation.id });
+        res.json({ ...normalized, id: generation.id });
       } else {
-        res.json(result);
+        res.json(normalized);
       }
     } catch (error) {
       res.status(500).json({ 
@@ -442,24 +500,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }));
 
-  app.post("/api/lyrics/analyze", async (req, res) => {
+  app.post("/api/lyrics/analyze", withUsageLimit(async (req, res) => {
     try {
       const schema = z.object({
-        lyrics: z.string().min(1)
+        lyrics: z.string().min(1),
+        aiProvider: z.enum(["openai", "grok", "gemini"]).optional(),
       });
 
-      const { lyrics } = schema.parse(req.body);
-      // Use Grok for lyrics analysis since OpenAI was removed
-      const result = await generateLyricsWithGrok(`Analyze these lyrics: ${lyrics}`, "analytical", "analysis");
-      
-      res.json(result);
+      const { lyrics, aiProvider } = schema.parse(req.body);
+
+      let analysis;
+      if (aiProvider === "openai" && process.env.OPENAI_API_KEY) {
+        analysis = await analyzeLyricsWithOpenAI(lyrics);
+      } else {
+        // Fallback to heuristic analysis to ensure consistent response shape
+        analysis = simpleLyricAnalysis(lyrics);
+      }
+
+      res.json(analysis);
     } catch (error) {
       res.status(500).json({ 
         message: "Failed to analyze lyrics", 
         error: error instanceof Error ? error.message : "Unknown error" 
       });
     }
-  });
+  }));
 
   // Beat generation routes
   app.post("/api/beat/generate", withUsageLimit(async (req, res) => {

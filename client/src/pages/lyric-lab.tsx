@@ -164,7 +164,7 @@ export default function LyricLab() {
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
                       placeholder="What should the song be about?"
-                      className="bg-github-dark border-github-border"
+                      className="bg-white text-black placeholder:text-gray-500 border-gray-300"
                     />
                   </div>
 
@@ -259,7 +259,7 @@ export default function LyricLab() {
                         <Textarea
                           value={generatedLyrics}
                           onChange={(e) => setGeneratedLyrics(e.target.value)}
-                          className="min-h-96 bg-github-dark border-github-border resize-none font-mono"
+                          className="min-h-96 bg-white text-black placeholder:text-gray-500 border-gray-300 resize-none font-mono"
                           placeholder="Your generated lyrics will appear here..."
                         />
                       </CardContent>
@@ -325,7 +325,7 @@ export default function LyricLab() {
                       value={analysisLyrics}
                       onChange={(e) => setAnalysisLyrics(e.target.value)}
                       placeholder="Paste your lyrics here for analysis..."
-                      className="min-h-64 bg-github-dark border-github-border resize-none"
+                      className="min-h-64 bg-white text-black placeholder:text-gray-500 border-gray-300 resize-none"
                     />
                     <Button
                       onClick={handleAnalyze}
