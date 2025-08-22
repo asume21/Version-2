@@ -34,7 +34,7 @@ export default function BeatStudio() {
   const [beatPattern, setBeatPattern] = useState<number[]>([]);
   const [selectedSample, setSelectedSample] = useState("Kick");
   const [volume, setVolume] = useState([75]);
-  const [aiProvider, setAiProvider] = useState("grok");
+  const [aiProvider, setAiProvider] = useState<"grok" | "openai" | "gemini">("grok");
   const [audioInitialized, setAudioInitialized] = useState(false);
   const { toast } = useToast();
   const intervalRef = useRef<NodeJS.Timeout>();
@@ -94,61 +94,47 @@ export default function BeatStudio() {
   };
 
   const handlePlay = async () => {
-    if (!audioInitialized) {
-      toast({
-        title: "Audio not ready",
-        description: "Click 'Start Audio' first to enable sound",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!generatedBeat) {
-      toast({
-        title: "No beat to play",
-        description: "Generate a beat first",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (isPlaying) {
-      audioManager.stop();
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
+    try {
+      if (!audioInitialized) {
+        await audioManager.initialize();
+        setAudioInitialized(true);
+        toast({ title: "Audio ready", description: "Audio system initialized" });
       }
-      setIsPlaying(false);
-    } else {
-      try {
-        console.log("Starting audio playback...");
-        console.log("Generated beat:", generatedBeat);
-        
-        await audioManager.playBeat(generatedBeat.pattern, generatedBeat.samples || ["kick", "snare", "hihat"], bpm[0]);
-        setIsPlaying(true);
-        
+
+      const patternToPlay = generatedBeat?.pattern?.length
+        ? generatedBeat.pattern
+        : (beatPattern?.length ? beatPattern : null);
+
+      if (!patternToPlay) {
         toast({
-          title: "Playing beat",
-          description: `${generatedBeat.description || "Beat is now playing"}`,
-        });
-        
-        // Auto-stop after 8 seconds for testing
-        setTimeout(() => {
-          if (isPlaying) {
-            audioManager.stop();
-            setIsPlaying(false);
-            console.log("Auto-stopped beat playback");
-          }
-        }, 8000);
-        
-      } catch (error) {
-        console.error("Playback error:", error);
-        toast({
-          title: "Playback failed",
-          description: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          title: "No pattern to play",
+          description: "Generate a beat or edit the pattern to add steps",
           variant: "destructive",
         });
-        setIsPlaying(false);
+        return;
       }
+
+      if (isPlaying) {
+        audioManager.stop();
+        setIsPlaying(false);
+        return;
+      }
+
+      await audioManager.playBeat(
+        patternToPlay,
+        generatedBeat?.samples || ["kick", "snare", "hihat"],
+        bpm[0]
+      );
+      setIsPlaying(true);
+      toast({ title: "Playing beat", description: generatedBeat?.description || "Beat is now playing" });
+    } catch (error) {
+      console.error("Playback error:", error);
+      toast({
+        title: "Playback failed",
+        description: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        variant: "destructive",
+      });
+      setIsPlaying(false);
     }
   };
 
@@ -264,7 +250,7 @@ export default function BeatStudio() {
                       <label className="text-sm font-medium mb-2 block">AI Provider</label>
                       <AIProviderSelector
                         value={aiProvider}
-                        onValueChange={setAiProvider}
+                        onValueChange={(v) => setAiProvider(v as "grok" | "openai" | "gemini")}
                       />
                     </div>
                   </div>

@@ -1,9 +1,12 @@
 import React, { useMemo, useRef, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
-import { Play, Pause, Square } from "lucide-react";
+import { Play, Pause, Square, Zap } from "lucide-react";
 import { audioManager } from "@/lib/audio";
+import { beatAPI } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 import {
   SequencerState,
   Track,
@@ -28,6 +31,7 @@ export default function Sequencer({ initial }: Props) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [selectedLength, setSelectedLength] = useState<number>(8); // 4/8/16
   const gridRef = useRef<HTMLDivElement | null>(null);
+  const { toast } = useToast();
 
   const totalSteps = state.bars * state.stepsPerBar;
 
@@ -52,6 +56,65 @@ export default function Sequencer({ initial }: Props) {
     audioManager.stop();
     setIsPlaying(false);
   };
+
+  // Apply a simple AI-generated pattern to the sequencer tracks
+  function applyAIPatternToSequencer(pattern: number[]) {
+    const totalSteps = state.bars * state.stepsPerBar;
+    const pLen = Math.max(1, pattern?.length ?? 1);
+
+    const kick = createEmptyClip(0, totalSteps, "AI Kick");
+    const snare = createEmptyClip(0, totalSteps, "AI Snare");
+    const hat = createEmptyClip(0, totalSteps, "AI Hi-hat");
+
+    for (let i = 0; i < totalSteps; i++) {
+      const stepInBar = i % state.stepsPerBar;
+      const aiOn = !!pattern?.[i % pLen];
+
+      // Kick: main beats plus AI accents
+      if (i % 4 === 0 || aiOn) {
+        kick.steps[i] = { active: true, velocity: 1 } as Step;
+      }
+
+      // Snare: backbeat on 2 and 4 (assuming 16 steps per bar)
+      if (stepInBar === 4 || stepInBar === 12) {
+        snare.steps[i] = { active: true, velocity: 1 } as Step;
+      }
+
+      // Hi-hat: every step for steady rhythm
+      hat.steps[i] = { active: true, velocity: 0.6 } as Step;
+    }
+
+    setState((s) => {
+      const tracks = s.tracks.map((t) => {
+        if (t.id === "kick") return { ...t, clips: [kick] } as Track;
+        if (t.id === "snare") return { ...t, clips: [snare] } as Track;
+        if (t.id === "hhc") return { ...t, clips: [hat] } as Track;
+        return { ...t, clips: [] } as Track;
+      });
+      return { ...s, tracks };
+    });
+  }
+
+  const aiGenerate = useMutation({
+    mutationFn: async () => {
+      // Minimal defaults; can be expanded with UI controls later
+      return await beatAPI.generate({
+        genre: "Hip-Hop",
+        bpm: state.bpm,
+        duration: state.bars,
+        aiProvider: "grok",
+      });
+    },
+    onSuccess: (data) => {
+      applyAIPatternToSequencer(data.pattern || []);
+      toast({ title: "AI pattern applied", description: data.description || "Sequencer filled from AI." });
+    },
+    onError: (err: any) => {
+      toast({ title: "AI generate failed", description: err?.message || "Unknown error", variant: "destructive" });
+    },
+  });
+
+  const handleAIGenerate = () => aiGenerate.mutate();
 
   const addClipAt = (trackIndex: number, stepIndex: number) => {
     const start = Math.max(0, Math.min(stepIndex, totalSteps - 1));
@@ -117,6 +180,10 @@ export default function Sequencer({ initial }: Props) {
             </Button>
             <Button variant="outline" onClick={handleStop}>
               <Square className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" onClick={handleAIGenerate} disabled={aiGenerate.isPending}>
+              <Zap className="h-4 w-4 mr-1" />
+              {aiGenerate.isPending ? "Generating..." : "AI Generate"}
             </Button>
           </div>
         </div>
