@@ -1,0 +1,7 @@
+node_modules/
+dist/
+build/
+client/dist/
+server/public/
+*.min.js
+package-lock.json

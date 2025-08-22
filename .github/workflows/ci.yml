@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+
+jobs:
+  lint_type_audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install deps (CI)
+        run: npm ci
+
+      - name: TypeScript check
+        run: npm run check
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Security audit (non-blocking)
+        run: npm run audit || true

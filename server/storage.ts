@@ -7,7 +7,7 @@ import {
   type InsertCodeTranslation,
   type MusicGeneration,
   type InsertMusicGeneration
-} from "@shared/schema";
+} from "../shared/schema";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
