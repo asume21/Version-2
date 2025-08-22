@@ -22,6 +22,14 @@ services:
         sync: false
       - key: XAI_API_KEY
         sync: false
+      - key: FREE_TIER_ENABLED
+        value: true
+      - key: FREE_TIER_DAILY_LIMIT
+        value: 5
+      - key: RATE_LIMIT_WINDOW_SECONDS
+        value: 60
+      - key: RATE_LIMIT_MAX_REQUESTS
+        value: 30
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET

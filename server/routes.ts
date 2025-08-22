@@ -36,13 +36,12 @@ import { stripe, isStripeEnabled } from "./stripe";
 
 // Free tier configuration (simple in-memory usage limiter)
 const FREE_TIER_ENABLED = process.env.FREE_TIER_ENABLED !== "false";
-const FREE_TIER_DAILY_LIMIT = parseInt(process.env.FREE_TIER_DAILY_LIMIT || "10", 10);
+const FREE_TIER_DAILY_LIMIT = parseInt(process.env.FREE_TIER_DAILY_LIMIT || "5", 10);
 
 const usageCounters = new Map<string, number>();
 
 function getClientKey(req: express.Request) {
-  const fwd = (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim();
-  const ip = fwd || req.ip || (req.socket as any)?.remoteAddress || "unknown";
+  const ip = req.ip || (req.socket as any)?.remoteAddress || "unknown";
   const day = new Date().toISOString().slice(0, 10);
   return `${ip}:${day}`;
 }
@@ -162,6 +161,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Health check
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  // Usage status (free tier)
+  app.get("/api/usage", (req, res) => {
+    if (!FREE_TIER_ENABLED) {
+      return res.json({ enabled: false, limit: null, used: null, remaining: null, window: "daily" });
+    }
+    const key = getClientKey(req);
+    const used = usageCounters.get(key) ?? 0;
+    const limit = FREE_TIER_DAILY_LIMIT;
+    const remaining = Math.max(0, limit - used);
+    res.json({ enabled: true, limit, used, remaining, window: "daily" });
   });
 
   // Billing endpoints
