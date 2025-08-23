@@ -25,6 +25,7 @@ import {
   generateBeatPattern as generateBeatWithOpenAI,
   codeToMusic as convertCodeToMusicWithOpenAI,
   getAIAssistance as getAIAssistanceWithOpenAI,
+  getRhymesWithOpenAI,
 } from "./openai";
 import {
   insertUserSchema,
@@ -33,6 +34,10 @@ import {
   insertMusicGenerationSchema
 } from "../shared/schema";
 import { stripe, isStripeEnabled } from "./stripe";
+
+import { professionalAudio } from "./services/professionalAudio";
+
+import { countSyllablesText, detectRhymeScheme as detectRhymeSchemeLocal, getLineMetrics, suggestRhymes } from "./lyricsUtils";
 
 // Free tier configuration (simple in-memory usage limiter)
 const FREE_TIER_ENABLED = process.env.FREE_TIER_ENABLED !== "false";
@@ -437,6 +442,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }));
 
+  // Lyric helper utilities
+  app.post("/api/lyrics/syllables", withUsageLimit(async (req, res) => {
+    try {
+      const schema = z.object({ lyrics: z.string().min(1) });
+      const { lyrics } = schema.parse(req.body);
+      const result = countSyllablesText(lyrics);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ message: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }));
+
+  app.post("/api/lyrics/rhyme-scheme", withUsageLimit(async (req, res) => {
+    try {
+      const schema = z.object({ lyrics: z.string().min(1) });
+      const { lyrics } = schema.parse(req.body);
+      const result = detectRhymeSchemeLocal(lyrics);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ message: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }));
+
+  app.post("/api/lyrics/metrics", withUsageLimit(async (req, res) => {
+    try {
+      const schema = z.object({ lyrics: z.string().min(1) });
+      const { lyrics } = schema.parse(req.body);
+      const result = getLineMetrics(lyrics);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ message: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }));
+
+  app.post("/api/lyrics/rhymes", withUsageLimit(async (req, res) => {
+    try {
+      const schema = z.object({ word: z.string().min(1), aiProvider: z.enum(["openai"]).optional() });
+      const { word, aiProvider } = schema.parse(req.body);
+
+      if (aiProvider === "openai") {
+        if (!process.env.OPENAI_API_KEY) {
+          return res.status(400).json({ message: "OpenAI API key not configured" });
+        }
+        const result = await getRhymesWithOpenAI(word);
+        return res.json({ ...result, source: "openai" });
+      }
+
+      const rhymes = suggestRhymes(word, 30);
+      // Heuristic engine does not distinguish near rhymes well; leave nearRhymes empty
+      res.json({ rhymes, nearRhymes: [], source: "local" });
+    } catch (error) {
+      res.status(400).json({ message: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }));
+
   app.get("/api/users/:userId/translations", async (req, res) => {
     try {
       const translations = await storage.getUserCodeTranslations(req.params.userId);
@@ -587,6 +647,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ 
         message: "Failed to generate beat", 
         error: error instanceof Error ? error.message : "Unknown error" 
+      });
+    }
+  }));
+
+  // Professional Audio routes
+  app.post("/api/pro-audio/generate", withUsageLimit(async (req, res) => {
+    try {
+      const schema = z.object({
+        prompt: z.string().min(1),
+        options: z.object({
+          genre: z.string().optional(),
+          mood: z.string().optional(),
+          duration: z.number().min(30).max(480).optional(),
+          style: z.string().optional(),
+          instruments: z.array(z.string()).optional(),
+          vocals: z.boolean().optional(),
+          bpm: z.number().min(60).max(200).optional(),
+          key: z.string().optional(),
+        }).optional(),
+        userId: z.string().optional(),
+        aiProvider: z.enum(["grok"]).default("grok"),
+      });
+
+      const { prompt, options, userId } = schema.parse(req.body);
+
+      // Provider availability guard (xAI only for professional audio)
+      if (!process.env.XAI_API_KEY) {
+        return res.status(400).json({ message: "Grok (xAI) API key not configured" });
+      }
+
+      const result = await professionalAudio.generateProfessionalSong(prompt, options || {});
+
+      // Save generation if user is provided
+      if (userId) {
+        const generation = await storage.createMusicGeneration({
+          userId,
+          type: "pro_audio",
+          prompt,
+          result,
+        });
+        res.json({ ...result, id: generation.id });
+      } else {
+        res.json(result);
+      }
+    } catch (error) {
+      res.status(500).json({
+        message: "Failed to generate professional audio",
+        error: error instanceof Error ? error.message : "Unknown error",
       });
     }
   }));

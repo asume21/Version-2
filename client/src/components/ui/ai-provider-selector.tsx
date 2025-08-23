@@ -16,21 +16,26 @@ interface AIProviderSelectorProps {
   value: string;
   onValueChange: (value: string) => void;
   className?: string;
+  // Optional list of provider IDs to allow (e.g., ["grok"]) 
+  allowedIds?: string[];
 }
 
-export function AIProviderSelector({ value, onValueChange, className }: AIProviderSelectorProps) {
+export function AIProviderSelector({ value, onValueChange, className, allowedIds }: AIProviderSelectorProps) {
   const { data: providers = [] } = useQuery<AIProvider[]>({
     queryKey: ["/api/ai/providers"],
   });
 
   const availableProviders = providers.filter(p => p.available);
-  
+  const filteredProviders = (allowedIds && allowedIds.length > 0)
+    ? availableProviders.filter(p => allowedIds.includes(p.id))
+    : availableProviders;
+
   // Set default to first available provider if current value is not available
   useEffect(() => {
-    if (availableProviders.length > 0 && !availableProviders.some(p => p.id === value)) {
-      onValueChange(availableProviders[0].id);
+    if (filteredProviders.length > 0 && !filteredProviders.some(p => p.id === value)) {
+      onValueChange(filteredProviders[0].id);
     }
-  }, [availableProviders, value, onValueChange]);
+  }, [filteredProviders, value, onValueChange]);
 
   const getProviderIcon = (id: string) => {
     switch (id) {
@@ -58,7 +63,7 @@ export function AIProviderSelector({ value, onValueChange, className }: AIProvid
     }
   };
 
-  if (availableProviders.length === 0) {
+  if (filteredProviders.length === 0) {
     return (
       <div className="flex items-center space-x-2 text-sm text-github-text-secondary">
         <Bot className="h-4 w-4" />
@@ -71,18 +76,18 @@ export function AIProviderSelector({ value, onValueChange, className }: AIProvid
     <Select value={value} onValueChange={onValueChange}>
       <SelectTrigger className={`w-48 ${className}`}>
         <SelectValue>
-          {availableProviders.find(p => p.id === value) && (
+          {filteredProviders.find(p => p.id === value) && (
             <div className="flex items-center space-x-2">
               <span className={getProviderColor(value)}>
                 {getProviderIcon(value)}
               </span>
-              <span>{availableProviders.find(p => p.id === value)?.name}</span>
+              <span>{filteredProviders.find(p => p.id === value)?.name}</span>
             </div>
           )}
         </SelectValue>
       </SelectTrigger>
       <SelectContent>
-        {availableProviders.map((provider) => (
+        {filteredProviders.map((provider) => (
           <SelectItem key={provider.id} value={provider.id}>
             <div className="flex flex-col space-y-1">
               <div className="flex items-center space-x-2">

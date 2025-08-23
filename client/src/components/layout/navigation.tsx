@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Code, Music, Zap, Menu, X } from "lucide-react";
+import { Code, Music, Zap, Menu, X, Headphones } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +15,7 @@ export function Navigation() {
     { href: "/beat-studio", label: "Beat Studio", icon: Music },
     { href: "/music-studio", label: "Music Studio", icon: Music },
     { href: "/codebeat-studio", label: "CodeBeat", icon: Zap },
+    { href: "/pro-audio", label: "Pro Audio", icon: Headphones },
     { href: "/ai-assistant", label: "AI Assistant", icon: null },
   ];
 

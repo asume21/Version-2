@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FileText, Loader2, Music, Sparkles, BarChart3 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { lyricsAPI } from "@/lib/api";
+import type { LineMetricsResponse, RhymesResponse } from "@/lib/api";
 import { AIProviderSelector } from "@/components/ui/ai-provider-selector";
 
 const MUSIC_GENRES = [
@@ -32,6 +33,10 @@ export default function LyricLab() {
   const [analysisLyrics, setAnalysisLyrics] = useState("");
   const [analysis, setAnalysis] = useState<any>(null);
   const [aiProvider, setAiProvider] = useState("grok");
+  const [analysisMetrics, setAnalysisMetrics] = useState<LineMetricsResponse | null>(null);
+  const [rhymeWord, setRhymeWord] = useState("");
+  const [rhymeMode, setRhymeMode] = useState<"openai" | "local">("openai");
+  const [rhymeResult, setRhymeResult] = useState<RhymesResponse | null>(null);
   const { toast } = useToast();
 
   const generateMutation = useMutation({
@@ -72,6 +77,27 @@ export default function LyricLab() {
     },
   });
 
+  const metricsMutation = useMutation({
+    mutationFn: lyricsAPI.metrics,
+    onSuccess: (data: LineMetricsResponse) => {
+      setAnalysisMetrics(data);
+      toast({ title: "Metrics ready", description: "Per-line syllables and rhyme labels computed" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Metrics failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const rhymesMutation = useMutation({
+    mutationFn: lyricsAPI.rhymes,
+    onSuccess: (data: RhymesResponse) => {
+      setRhymeResult(data);
+    },
+    onError: (error: any) => {
+      toast({ title: "Rhyme lookup failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   const handleGenerate = () => {
     if (!prompt.trim()) {
       toast({
@@ -104,6 +130,22 @@ export default function LyricLab() {
       lyrics: analysisLyrics,
       aiProvider
     });
+  };
+
+  const handleComputeMetrics = () => {
+    if (!analysisLyrics.trim()) {
+      toast({ title: "No lyrics provided", description: "Paste lyrics first", variant: "destructive" });
+      return;
+    }
+    metricsMutation.mutate({ lyrics: analysisLyrics });
+  };
+
+  const handleSuggestRhymes = () => {
+    if (!rhymeWord.trim()) {
+      toast({ title: "No word provided", description: "Enter a word to find rhymes", variant: "destructive" });
+      return;
+    }
+    rhymesMutation.mutate({ word: rhymeWord.trim(), aiProvider: rhymeMode === "openai" ? "openai" : undefined });
   };
 
   const examplePrompts = [
@@ -344,6 +386,20 @@ export default function LyricLab() {
                         </>
                       )}
                     </Button>
+                    <Button
+                      onClick={handleComputeMetrics}
+                      disabled={metricsMutation.isPending}
+                      className="w-full mt-2 bg-gradient-to-r from-accent-pink to-accent-purple"
+                    >
+                      {metricsMutation.isPending ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Computing Metrics...
+                        </>
+                      ) : (
+                        <>Compute Lyric Metrics</>
+                      )}
+                    </Button>
                   </CardContent>
                 </Card>
 
@@ -351,6 +407,104 @@ export default function LyricLab() {
                 <div className="space-y-4">
                   {analysis ? (
                     <>
+                      {/* Per-line Metrics */}
+                      {analysisMetrics && (
+                        <Card className="bg-github-secondary border-github-border">
+                          <CardHeader>
+                            <CardTitle className="text-sm">Per-line Metrics</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="text-xs text-github-text-secondary">Rhyme Scheme:</span>
+                              <Badge variant="outline" className="text-accent-cyan">
+                                {analysisMetrics.perLine.map((l) => l.label).join("")}
+                              </Badge>
+                              <span className="ml-auto text-xs text-github-text-secondary">Avg syllables: {analysisMetrics.averages.syllables.toFixed(1)}</span>
+                            </div>
+                            <div className="space-y-2">
+                              {analysisMetrics.perLine.map((row, idx) => (
+                                <div key={idx} className="flex items-center gap-3 p-2 rounded-md bg-github-dark/60 border border-github-border">
+                                  <div className="w-6 h-6 rounded-sm bg-accent-cyan/20 text-accent-cyan text-xs flex items-center justify-center font-mono">{row.label}</div>
+                                  <div className="flex-1">
+                                    <div className="text-sm font-mono break-words">{row.line}</div>
+                                    <div className="text-xs text-github-text-secondary">Syllables: {row.syllables} • Last: {row.lastWord} • Key: {row.rhymeKey}</div>
+                                  </div>
+                                  <Button size="sm" variant="outline" onClick={() => setRhymeWord(row.lastWord)}>
+                                    Use "{row.lastWord}"
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {/* Rhyme Suggestions */}
+                      <Card className="bg-github-secondary border-github-border">
+                        <CardHeader>
+                          <CardTitle className="text-sm">Rhyme Suggestions</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
+                            <div className="md:col-span-2">
+                              <Input
+                                value={rhymeWord}
+                                onChange={(e) => setRhymeWord(e.target.value)}
+                                placeholder="Enter a word (e.g., night)"
+                                className="bg-white text-black placeholder:text-gray-500 border-gray-300"
+                              />
+                            </div>
+                            <div>
+                              <Select value={rhymeMode} onValueChange={(v) => setRhymeMode(v as any)}>
+                                <SelectTrigger className="bg-github-dark border-github-border">
+                                  <SelectValue placeholder="Provider" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="openai">OpenAI</SelectItem>
+                                  <SelectItem value="local">Local</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          <Button onClick={handleSuggestRhymes} disabled={rhymesMutation.isPending} className="w-full">
+                            {rhymesMutation.isPending ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Getting Rhymes...
+                              </>
+                            ) : (
+                              <>Suggest Rhymes</>
+                            )}
+                          </Button>
+
+                          {rhymeResult && (
+                            <div className="mt-4 space-y-3">
+                              <div className="text-xs text-github-text-secondary">Source: {rhymeResult.source}</div>
+                              {rhymeResult.rhymes.length > 0 && (
+                                <div>
+                                  <div className="text-xs mb-1">Exact rhymes</div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {rhymeResult.rhymes.map((w, i) => (
+                                      <Badge key={i} variant="secondary">{w}</Badge>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              {rhymeResult.nearRhymes.length > 0 && (
+                                <div>
+                                  <div className="text-xs mb-1">Near rhymes</div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {rhymeResult.nearRhymes.map((w, i) => (
+                                      <Badge key={i} variant="outline">{w}</Badge>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+
                       <Card className="bg-github-secondary border-github-border">
                         <CardHeader>
                           <CardTitle className="text-sm">Sentiment Analysis</CardTitle>

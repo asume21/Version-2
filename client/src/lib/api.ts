@@ -41,6 +41,46 @@ export interface LyricsAnalysisResponse {
   complexity: number;
 }
 
+// Lyric helpers
+export interface SyllableCountRequest {
+  lyrics: string;
+}
+
+export interface SyllableCountResponse {
+  total: number;
+  perLine: { line: string; words: string[]; perWord: number[]; syllables: number }[];
+}
+
+export interface RhymeSchemeRequest {
+  lyrics: string;
+}
+
+export interface RhymeSchemeResponse {
+  scheme: string;
+  labels: string[];
+  keys: string[];
+}
+
+export interface LineMetricsRequest {
+  lyrics: string;
+}
+
+export interface LineMetricsResponse {
+  perLine: { line: string; syllables: number; words: string[]; perWord: number[]; lastWord: string; rhymeKey: string; label: string }[];
+  averages: { syllables: number };
+}
+
+export interface RhymesRequest {
+  word: string;
+  aiProvider?: "openai"; // local if omitted
+}
+
+export interface RhymesResponse {
+  rhymes: string[];
+  nearRhymes: string[];
+  source: "openai" | "local";
+}
+
 export interface BeatRequest {
   genre: string;
   bpm: number;
@@ -99,6 +139,26 @@ export const lyricsAPI = {
   analyze: async (data: LyricsAnalysisRequest): Promise<LyricsAnalysisResponse> => {
     const response = await apiRequest("POST", "/api/lyrics/analyze", data);
     return response.json();
+  },
+
+  syllables: async (data: SyllableCountRequest): Promise<SyllableCountResponse> => {
+    const response = await apiRequest("POST", "/api/lyrics/syllables", data);
+    return response.json();
+  },
+
+  rhymeScheme: async (data: RhymeSchemeRequest): Promise<RhymeSchemeResponse> => {
+    const response = await apiRequest("POST", "/api/lyrics/rhyme-scheme", data);
+    return response.json();
+  },
+
+  metrics: async (data: LineMetricsRequest): Promise<LineMetricsResponse> => {
+    const response = await apiRequest("POST", "/api/lyrics/metrics", data);
+    return response.json();
+  },
+
+  rhymes: async (data: RhymesRequest): Promise<RhymesResponse> => {
+    const response = await apiRequest("POST", "/api/lyrics/rhymes", data);
+    return response.json();
   }
 };
 
@@ -119,6 +179,45 @@ export const codeBeatAPI = {
 export const aiAPI = {
   assist: async (data: AIAssistRequest): Promise<AIAssistResponse> => {
     const response = await apiRequest("POST", "/api/ai/assist", data);
+    return response.json();
+  }
+};
+
+// Pro Audio (Grok-only)
+export interface ProAudioOptions {
+  genre?: string;
+  mood?: string;
+  duration?: number; // seconds, 30-480
+  style?: string;
+  instruments?: string[];
+  vocals?: boolean;
+  bpm?: number;
+  key?: string;
+}
+
+export interface ProAudioRequest {
+  prompt: string;
+  options?: ProAudioOptions;
+  userId?: string;
+  aiProvider?: "grok"; // restricted on the server
+}
+
+export interface ProAudioResponse {
+  songStructure?: any;
+  melody?: any;
+  chordProgression?: string[];
+  vocals?: any;
+  metadata?: any;
+  audioFeatures?: any;
+  productionNotes?: any;
+  id?: string;
+  // Allow additional fields from the backend without strict typing
+  [key: string]: any;
+}
+
+export const proAudioAPI = {
+  generate: async (data: ProAudioRequest): Promise<ProAudioResponse> => {
+    const response = await apiRequest("POST", "/api/pro-audio/generate", data);
     return response.json();
   }
 };

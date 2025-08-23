@@ -36,6 +36,44 @@ export async function translateCode(
   }
 }
 
+export async function planAssistantAction(
+  question: string,
+  context: string = ""
+): Promise<{ intent: "answer" | "translate_code" | "generate_lyrics" | "generate_beat" | "code_to_music" | "pro_audio" | "analyze_lyrics" | "rhyme_suggestions" | "syllable_count" | "rhyme_scheme"; parameters: Record<string, any>; rationale: string }> {
+  const systemPrompt = `You are a planner for an AI assistant that can perform the following actions:
+Actions:
+- answer: Provide a direct helpful answer. Parameters: {}
+- translate_code: Translate code between languages. Parameters: { sourceCode: string, sourceLanguage: string, targetLanguage: string }
+- generate_lyrics: Create song lyrics. Parameters: { prompt: string, genre?: string, mood?: string }
+- generate_beat: Create a beat pattern. Parameters: { genre: string, bpm?: number, duration?: number }
+- code_to_music: Convert code to music. Parameters: { code: string, language: string }
+- pro_audio: Generate a professional full song. Parameters: { prompt: string, options?: { genre?: string, mood?: string, duration?: number, style?: string, instruments?: string[], vocals?: boolean, bpm?: number, key?: string } }
+ - analyze_lyrics: Analyze lyrics. Parameters: { lyrics: string }
+ - rhyme_suggestions: Suggest rhymes for a word. Parameters: { word: string }
+ - syllable_count: Count syllables (per line). Parameters: { lyrics: string }
+ - rhyme_scheme: Detect rhyme scheme. Parameters: { lyrics: string }
+
+Given the user's message and optional context, pick the single best intent and extract parameters if the user provided enough details. If details are missing, choose "answer" and explain what info is needed.
+
+Respond with JSON: { "intent": "answer|translate_code|generate_lyrics|generate_beat|code_to_music|pro_audio|analyze_lyrics|rhyme_suggestions|syllable_count|rhyme_scheme", "parameters": { ... }, "rationale": "string" }`;
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: systemPrompt + (context ? `\nContext: ${context}` : "") },
+      { role: "user", content: question }
+    ],
+    response_format: { type: "json_object" }
+  });
+
+  const result = JSON.parse(response.choices[0].message.content || "{}");
+  return {
+    intent: result.intent || "answer",
+    parameters: result.parameters || {},
+    rationale: result.rationale || ""
+  };
+}
+
 export async function generateLyrics(
   prompt: string,
   genre?: string,
@@ -98,6 +136,33 @@ export async function analyzeLyrics(
     };
   } catch (error) {
     throw new Error("Failed to analyze lyrics: " + (error as Error).message);
+  }
+}
+
+export async function getRhymesWithOpenAI(
+  word: string
+): Promise<{ rhymes: string[]; nearRhymes: string[] }> {
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are an English rhyme dictionary. Given a word, return two arrays: exact rhymes (same stressed vowel and ending) and near rhymes (assonance/consonance). Respond ONLY with JSON: { \"rhymes\": [\"string\"], \"nearRhymes\": [\"string\"] }",
+        },
+        { role: "user", content: `Word: ${word}` },
+      ],
+      response_format: { type: "json_object" },
+    });
+
+    const result = JSON.parse(response.choices[0].message.content || "{}");
+    return {
+      rhymes: Array.isArray(result.rhymes) ? result.rhymes : [],
+      nearRhymes: Array.isArray(result.nearRhymes) ? result.nearRhymes : [],
+    };
+  } catch (error) {
+    throw new Error("Failed to fetch rhymes: " + (error as Error).message);
   }
 }
 

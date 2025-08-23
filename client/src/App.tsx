@@ -17,6 +17,7 @@ import AIAssistant from "@/pages/ai-assistant";
 import Billing from "@/pages/billing";
 import Analytics from "@/pages/analytics";
 import Settings from "@/pages/settings";
+import ProAudio from "@/pages/pro-audio";
 
 function Router() {
   return (
@@ -28,6 +29,7 @@ function Router() {
       <Route path="/beat-studio" component={BeatStudio} />
       <Route path="/music-studio" component={MusicStudio} />
       <Route path="/codebeat-studio" component={CodeBeatStudio} />
+      <Route path="/pro-audio" component={ProAudio} />
       <Route path="/ai-assistant" component={AIAssistant} />
       <Route path="/billing" component={Billing} />
       <Route path="/analytics" component={Analytics} />

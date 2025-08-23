@@ -23,6 +23,7 @@ export function Sidebar() {
     { href: "/lyric-lab", label: "Lyric Lab", icon: FileText },
     { href: "/beat-studio", label: "Beat Studio", icon: Headphones },
     { href: "/music-studio", label: "Music Studio", icon: Music },
+    { href: "/pro-audio", label: "Pro Audio", icon: Headphones },
     { href: "/codebeat-studio", label: "CodeBeat Studio", icon: Zap },
     { href: "/ai-assistant", label: "AI Assistant", icon: Bot },
     { href: "/billing", label: "Billing", icon: CreditCard },
